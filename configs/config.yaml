@@ -4,7 +4,7 @@
 
 paths:
 
-  load_dir: "C:/Users/behsh/Desktop/ML assignment/GEFCom2014-L_V2/Load"
+  load_dir: "Load"
   output_dir: "outputs"
 
 # Which tasks to include in the backtest. All 15 by default; shrink this
