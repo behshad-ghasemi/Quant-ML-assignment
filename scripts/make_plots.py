@@ -1,27 +1,4 @@
-#!/usr/bin/env python3
-"""Generate the plots referenced in the README's Results section from the
-CSVs already produced by scripts/run_backtest.py -- no refitting needed.
 
-Produces (into --output-dir, default "outputs"):
-    calibration_reliability.png   -- nominal vs. empirical quantile coverage
-                                      per model, pooled across all backtest
-                                      tasks that have ground truth. Directly
-                                      addresses assignment requirement 3
-                                      ("assess calibration").
-    pinball_by_task.png           -- per-task mean pinball loss, one line per
-                                      model, so fold-to-fold variance is
-                                      visible at a glance (requirement 5,
-                                      "do not rely on a single performance
-                                      number").
-    coverage_width_tradeoff.png   -- (optional/nice-to-have) empirical
-                                      coverage vs. mean interval width for a
-                                      few nominal intervals, one point per
-                                      model -- a compact view of the
-                                      calibration/sharpness tradeoff.
-
-Usage:
-    python scripts/make_plots.py --config configs/config.yaml --output-dir outputs
-"""
 from __future__ import annotations
 
 import argparse
@@ -29,7 +6,7 @@ import sys
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")  # headless-safe; no display needed to save PNGs
+matplotlib.use("Agg") 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -42,9 +19,7 @@ from gefcom.metrics import QUANTILE_LEVELS  # noqa: E402
 
 QUANTILE_COLUMNS = [f"{q/100:.2f}" for q in range(1, 100)]
 
-# Keep plots readable: show baselines + the headline models, skip the
-# residual/ensemble/oracle variants which are secondary comparisons already
-# covered in the tables.
+
 DEFAULT_MODELS_TO_PLOT = [
     "benchmark_official",
     "baseline_empirical_climatology",
