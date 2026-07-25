@@ -269,9 +269,7 @@ between the two evaluations is itself informative: it shows how much the
 "do the models beat the baseline" conclusion depends on which months get
 tested, which is exactly the single-number trap the assignment warns
 about, just one level up.
-
-## Limitations and unsuccessful approaches
-
+## Development Notes
 - **A real timestamp-parsing bug, found and fixed:** the raw
   `TIMESTAMP` format concatenates month+day+year with no separators and
   no fixed width (e.g. `"1012010 1:00"`), which is genuinely ambiguous
@@ -285,6 +283,9 @@ about, just one level up.
   file's own first row; `reconstruct_hourly_index`'s internal spot-check
   against unambiguous rows still catches genuine file corruption by
   raising loudly. See `data_loading.py` and `timestamps.py` docstrings.
+  
+## Limitations and unsuccessful approaches
+
 - **Ensembling with the baseline works; the raw models alone don't
   clearly help.** This was somewhat unexpected going in, and is reported
   honestly above rather than only showing the best variant.
