@@ -2,7 +2,7 @@
 """Run the full rolling-origin backtest across the configured GEFCom2014-L
 tasks: for each task, fit the baselines + models, predict 99 quantiles for
 the target month, and (where a solution file is available) evaluate with
-pinball loss, calibration, and Diebold-Mariano tests against baselines.
+pinball loss, calibration, and Diebold-Mariano tests against baselines
 
 Usage:
     python scripts/run_backtest.py --config configs/config.yaml
