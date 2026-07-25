@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render outputs/pinball_summary.csv, coverage_summary.csv and
 diebold_mariano_tests.csv (produced by scripts/run_backtest.py) as
-markdown tables, ready to paste into the README's Results section.
+markdown tables.
 
 Usage:
     python scripts/make_results_section.py --output-dir outputs > results_section.md
