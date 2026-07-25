@@ -31,11 +31,7 @@ Task 3's own file contributes ~720 rows, i.e. about one month, on top of
 Task 1's ~85k-row base). `load_task` therefore reconstructs each task's
 full history by chaining every earlier task's file onto Task 1's base,
 rather than trusting any single Ln-train.csv (for n>1) to be complete on
-its own. Some downloaded task files (seen so far: Task 2 and Task 14) are
-themselves corrupted/mislabeled -- their date range doesn't match what
-should have been newly revealed at that point -- and are skipped with a
-warning rather than corrupting the chain; the resulting one-month gap is
-treated the same way as the documented 2001-2005 LOAD gap. 
+its own.
 """
 from __future__ import annotations
 
