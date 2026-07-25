@@ -34,7 +34,7 @@ assumption (see "Leakage protection" below), not an oversight.
 │   ├── calibration.py           # reliability curve, interval coverage
 │   ├── stats_tests.py           # HAC-corrected Diebold-Mariano test
 │   ├── pipeline.py               # orchestrates one task end-to-end
-│   └── lstm_model.py             # optional, off by default
+
 ├── scripts/
 │   ├── run_backtest.py           # the main entry point — produces all results below
 │   ├── tune_hyperparams.py       # leakage-safe internal-fold tuning
@@ -42,7 +42,7 @@ assumption (see "Leakage protection" below), not an oversight.
 │   ├── make_plots.py             # calibration + per-task pinball plots
 │   ├── make_results_section.py   # renders outputs/*.csv as markdown tables
 │   ├── diagnose_task_files.py    # standalone per-file sanity check (see "Limitations")
-│   └── run_lstm_experiment.py    # optional LSTM comparison
+
 ├── tests/                        # pytest -- leakage guards, metric checks, timestamp parsing
 └── outputs/                      # generated CSVs + PNGs (gitignored raw data, kept results)
 ```
@@ -264,6 +264,7 @@ score.
   per-season model selection given the visible fold-to-fold variance.Also i would try different models even deep learning as LSTM to test whether
   a sequence model over the same leakage-safe feature stream captures
   temporal structure the per-hour GBMs miss.
+  The oracle-weather comparison (leakage.run_oracle_comparison) is implemented and covered by a dedicated test (test_oracle_weather_mode_requires_explicit_observed_weather), but was not run for this submission due to time constraints. The expected direction is a modest improvement in pinball loss, since real future temperature is strictly more informative than a climatology lookup — this would be the first thing to quantify with more time.
 
 ## Tests
 
