@@ -258,15 +258,12 @@ score.
 - **Ensembling with the baseline works; the raw models alone don't
   clearly help.** This was somewhat unexpected going in, and is reported
   honestly above rather than only showing the best variant.
-- **LSTM (optional, `run_lstm_experiment.py`):** included to test whether
-  a sequence model over the same leakage-safe feature stream captures
-  temporal structure the per-hour GBMs miss. Not part of the default
-  backtest and not expected to beat LightGBM/XGBoost — reported only as a
-  comparison point per-task, not in the main table.
 - **What I'd try next with more time:** a proper stacking/blending weight
   (rather than fixed 50/50) learned on validation folds; quantile
   crossing-aware loss functions instead of post-hoc sorting; per-zone or
-  per-season model selection given the visible fold-to-fold variance.
+  per-season model selection given the visible fold-to-fold variance.Also i would try different models even deep learning as LSTM to test whether
+  a sequence model over the same leakage-safe feature stream captures
+  temporal structure the per-hour GBMs miss.
 
 ## Tests
 
