@@ -31,13 +31,7 @@ Task 3's own file contributes ~720 rows, i.e. about one month, on top of
 Task 1's ~85k-row base). `load_task` therefore reconstructs each task's
 full history by chaining every earlier task's file onto Task 1's base,
 rather than trusting any single Ln-train.csv (for n>1) to be complete on
-its own. Some downloaded task files (seen so far: Task 2 and Task 14) are
-themselves corrupted/mislabeled -- their date range doesn't match what
-should have been newly revealed at that point -- and are skipped with a
-warning rather than corrupting the chain; the resulting one-month gap is
-treated the same way as the documented 2001-2005 LOAD gap. If you can get
-clean replacements for those files, re-downloading and replacing them
-removes the gap and should be preferred over leaving it in.
+its own. 
 """
 from __future__ import annotations
 
@@ -125,20 +119,6 @@ def _build_cumulative_history(load_dir, task_id: int) -> tuple[pd.DataFrame, pd.
     for tid in range(1, task_id + 1):
         paths = discover_task(load_dir, tid)
 
-        # Anchor every task after the first on continuity from the
-        # accumulated history, instead of self-parsing its own first
-        # TIMESTAMP row. This export's date format is genuinely ambiguous
-        # whenever a file starts on the 1st of a two-digit month (e.g.
-        # "1012010" collides between Jan 1 2010 and Oct 1 2010 -- both
-        # splits have day==1, so no string-only tie-break can resolve it;
-        # see timestamps.py). This mis-parsed Task 2 and Task 14 (both
-        # genuinely start Oct 1) as if they started in January -- it
-        # looked like corrupted/mislabeled files, but was really a parsing
-        # bug. Anchoring on continuity (already used for benchmark/
-        # solution files, see hourly_index_from_start) removes the
-        # ambiguity; reconstruct_hourly_index's internal spot-check
-        # against the file's own unambiguous rows still catches genuine
-        # corruption by raising loudly.
         anchor = None if combined is None else combined.index.max() + pd.Timedelta(hours=1)
         hist, idx = _read_train(paths.train_csv, anchor_override=anchor)
 
