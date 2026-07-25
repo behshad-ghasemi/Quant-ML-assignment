@@ -2,20 +2,12 @@
 """Multi-fold internal backtest -- gets you a statistically meaningful
 comparison of baseline vs. models WITHOUT needing official Solution files.
 
-Motivation
-----------
-The real backtest (run_backtest.py) can only be *scored* on tasks that
-have a Kaggle Solution file. You cannot conclude "model X is worse than
-baseline Y" from a single held-out month; the variance across months
-(holidays, weather regimes, etc.) is large enough that one month is not
-representative.
 
 This script reuses the exact same "hold out trailing month(s) from a
 task's own *training* history" trick that tune_hyperparams.py already
 uses for leakage-safe hyperparameter search -- except here we use it for
 MODEL COMPARISON, not tuning, and we pull folds from every task's history
-(not just one tuning task). Every fold's "true" LOAD is data you already
-have (it's inside the train CSV), so no Solution file is required at all.
+(not just one tuning task).  no Solution file is required at all.
 
 Usage:
     python scripts/internal_multi_fold_backtest.py --config configs/config.yaml \
@@ -50,22 +42,9 @@ from gefcom.stats_tests import diebold_mariano_test  # noqa: E402
 
 
 def make_internal_folds(history: pd.DataFrame, n_folds: int, fold_months: int = 1):
-    """Same idea as tune_hyperparams.make_internal_folds: carve `n_folds`
-    expanding-window (train_hist, held_out_index, held_out_y) slices from
-    the tail of `history`, oldest-fold-first. Skips folds that don't have
-    enough real LOAD data to be meaningful.
 
-    NOTE: `train_hist` is always a *prefix* slice of the original `history`
-    (`history.index < month_start`), so `train_hist.index.min()` is the
-    same fixed point for every fold of a given task -- this matters
-    because that's exactly the value used as `reference_date` below (see
-    features.py docstring on the trend-continuity bug)."""
     valid = history.dropna(subset=["LOAD"])
-    # A train file's last row is the hour-24 rollover into the next
-    # calendar date, which creates a phantom 1-row "next month" period
-    # that would otherwise silently eat one of the requested n_folds
-    # slots without being replaced. Filter months with too few rows out
-    # BEFORE slicing to the last n_folds.
+
     month_counts = valid.index.to_period("M").value_counts()
     months = sorted(m for m, c in month_counts.items() if c >= 100)
     if len(months) < n_folds + 6:
