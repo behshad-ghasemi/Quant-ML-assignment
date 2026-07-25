@@ -33,23 +33,23 @@ models:
 
   lightgbm:
     enabled: true
-    n_estimators : 450
-    learning_rate:  0.14175794684305423
+    n_estimators : 600
+    learning_rate:  0.018322328077144567
     num_leaves: 15
-    min_child_samples: 71
-    subsample: 0.6185561776532837
-    colsample_bytree: 0.6074013118033397
-    reg_lambda: 0.5557415004455608
+    min_child_samples: 10
+    subsample: 0.6097618133313577
+    colsample_bytree: 0.870980925020376
+    reg_lambda: 0.37657168499938887
 
 
   xgboost:
     enabled: true
-    n_estimators: 550
-    learning_rate: 0.07043938300864458
+    n_estimators: 200
+    learning_rate: 0.07014906598664564
     max_depth: 3
-    subsample: 0.7820097212027186
-    colsample_bytree: 0.6879313757056237
-    reg_lambda: 2.5992137701215734
+    subsample: 0.731710673817582
+    colsample_bytree: 0.9928324494985943
+    reg_lambda: 0.0010414692923424846
 
 
 
