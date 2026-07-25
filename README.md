@@ -1,153 +1,284 @@
-# GEFCom2014 Probabilistic Load Forecasting
+# Probabilistic Electricity Load Forecasting — GEFCom2014-L
 
-Behshad Ghaseminezhadabdolmaleki;
-Preferred: Beth Gasemin
+One-month-ahead hourly probabilistic load forecasts for the load track of
+the Global Energy Forecasting Competition 2014 (GEFCom2014-L_V2), evaluated
+with pinball loss and calibration diagnostics across all 15 official
+rolling-origin backtest tasks.
 
-## 1. Problem
+## Problem, in short
 
-This repository addresses the load-forecasting track of the Global Energy Forecasting Competition 2014 (GEFCom2014-L). Given up to ~10 years of hourly electricity load and hourly temperature readings from 25 weather stations for a single utility zone, the task is to produce **one-month-ahead hourly probabilistic forecasts** — the 1st through 99th percentile of load for every hour of a held-out target month — evaluated with pinball loss. The dataset is organized as 15 sequential monthly "tasks," each revealing one more month of history and asking for a forecast of the following month.
+Every month, the utility needs an hourly forecast of electricity load (MW)
+for the following month — not a single number, but a full predictive
+distribution (the 1st through 99th percentiles), so that downstream
+planning decisions can account for uncertainty rather than just a point
+estimate. The dataset provides 15 sequential "tasks": each one reveals one
+more month of true history and asks for a 99-quantile forecast of the next,
+unseen month. Hourly temperature readings from 25 weather stations are also
+provided, but real temperature for the forecast month would not normally
+be known in advance — this is treated as an explicit, testable modelling
+assumption (see "Leakage protection" below), not an oversight.
 
-The central modelling challenge is that **temperature is a strong predictor of load, but the real future temperature is not available at forecast time** in a genuine one-month-ahead setting. This repository treats that constraint as a first-class design requirement rather than an afterthought: every feature used by the default models is verifiably computable using only information available strictly before the target month, and the cost of that constraint is measured explicitly (see the oracle-weather comparison in Results).
-
-## 2. Repository structure
+## Repository layout
 
 ```
-src/gefcom/
-  timestamps.py        -- robust reconstruction of the dataset's ambiguous raw TIMESTAMP format
-  discovery.py          -- locates train/benchmark/solution files per task, tolerant of naming variants
-  data_loading.py        -- builds each task's cumulative history + target month into a TaskBundle
-  features.py            -- calendar + climatology feature engineering (leakage-safe by construction)
-  baselines.py            -- empirical-quantile climatology baseline
-  quantile_models.py      -- knot-based quantile regression (linear / LightGBM / XGBoost), one interface
-  metrics.py              -- pinball loss, monotonicity enforcement, coverage/interval-width utilities
-  calibration.py          -- reliability-curve and interval-coverage diagnostics
-  stats_tests.py           -- Diebold-Mariano test with HAC (Newey-West) variance correction
-  pipeline.py              -- orchestrates one task's full fit -> predict -> evaluate run
-  lstm_model.py            -- optional PyTorch sequence-model comparison, off by default
-
-scripts/
-  run_backtest.py                  -- full pipeline on real GEFCom2014 tasks, scored where a Solution file exists
-  internal_multi_fold_backtest.py  -- history-only multi-fold backtest, no Solution files required
-  tune_hyperparams.py              -- Optuna hyperparameter search using leakage-safe internal folds
-  diagnose_task_files.py           -- audits whether each task's own file is a full history or an increment
-  make_results_section.py          -- renders outputs/*.csv as markdown tables for this README
-  run_lstm_experiment.py           -- optional, single-task LSTM comparison (exploratory only)
-
-tests/
-  test_timestamps.py            -- ambiguous-date parsing and hourly-grid reconstruction
-  test_no_leakage.py             -- history/target separation, feature-column consistency, trend continuity
-  test_metrics.py                 -- pinball loss, monotonicity, coverage/interval-width correctness
-  test_stats_tests.py             -- Diebold-Mariano correctness, including HAC vs. naive variance
-  test_pipeline_integration.py    -- end-to-end run on a small synthetic fixture
-
-configs/config.yaml   -- all paths, model hyperparameters, and experiment settings (no hard-coded params)
+├── configs/config.yaml          # all paths, tasks, models, hyperparameters
+├── requirements.txt             # pinned environment
+├── src/gefcom/                  # the actual package
+│   ├── data_loading.py          # TaskBundle construction, cumulative history
+│   ├── discovery.py             # locates train/benchmark/solution files
+│   ├── timestamps.py            # robust hourly-grid reconstruction
+│   ├── features.py              # calendar + climatology feature engineering
+│   ├── baselines.py             # empirical-quantile climatology baseline
+│   ├── quantile_models.py       # linear_qr / lightgbm / xgboost, knot-based
+│   ├── metrics.py                # pinball loss and friends
+│   ├── calibration.py           # reliability curve, interval coverage
+│   ├── stats_tests.py           # HAC-corrected Diebold-Mariano test
+│   ├── pipeline.py               # orchestrates one task end-to-end
+│   └── lstm_model.py             # optional, off by default
+├── scripts/
+│   ├── run_backtest.py           # the main entry point — produces all results below
+│   ├── tune_hyperparams.py       # leakage-safe internal-fold tuning
+│   ├── internal_multi_fold_backtest.py  # extra model-comparison folds, no Solution files needed
+│   ├── make_plots.py             # calibration + per-task pinball plots
+│   ├── make_results_section.py   # renders outputs/*.csv as markdown tables
+│   ├── diagnose_task_files.py    # standalone per-file sanity check (see "Limitations")
+│   └── run_lstm_experiment.py    # optional LSTM comparison
+├── tests/                        # pytest -- leakage guards, metric checks, timestamp parsing
+└── outputs/                      # generated CSVs + PNGs (gitignored raw data, kept results)
 ```
 
-## 3. Setup and reproduction
+## Reproducing the results
+
+1. Create the environment:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Download `GEFCom2014-L_V2` from Kaggle and place the `Load` folder so
+   that `data/GEFCom2014-L_V2/Load/Task 1/L1-train.csv` exists (relative to
+   the repo root). Adjust `configs/config.yaml → paths.load_dir` if you
+   keep it elsewhere.
+3. (Optional, already-tuned parameters are checked into `configs/config.yaml`)
+   Re-tune hyperparameters if you want to reproduce that step too:
+   ```bash
+   python scripts/tune_hyperparams.py --config configs/config.yaml --family lightgbm --n-trials 30
+   python scripts/tune_hyperparams.py --config configs/config.yaml --family xgboost --n-trials 30
+   ```
+   and copy the resulting `outputs/best_params_*.json` values into
+   `configs/config.yaml → models.<family>`.
+4. Run the full backtest across all 15 tasks:
+   ```bash
+   python scripts/run_backtest.py --config configs/config.yaml
+   ```
+5. Generate plots and a paste-ready results section:
+   ```bash
+   python scripts/make_plots.py --config configs/config.yaml
+   python scripts/make_results_section.py --output-dir outputs > results_section.md
+   ```
+6. Run the test suite:
+   ```bash
+   pytest -v
+   ```
+
+For a fast development run instead of the full 15 tasks:
+```bash
+python scripts/run_backtest.py --config configs/config.yaml --tasks 1,2,3
+```
+
+## Validation design (rolling-origin backtest)
+
+Each of the 15 GEFCom2014-L tasks *is* one expanding-window backtest fold by
+construction: task *N*'s own training file reveals history strictly before
+task *N*'s target month, and the target month is exactly the one held out.
+No additional manual cross-validation splitting of the 15 tasks was needed
+or added — this is the backtesting scheme, and it directly mirrors how the
+model would really be used in production (retrain monthly on everything
+known so far, forecast the next unseen month).
+
+Within a single task, the LightGBM/XGBoost models additionally use a
+trailing 10% validation slice of the *training* period only (never the
+target month) for early stopping.
+
+A second, complementary internal backtest
+(`scripts/internal_multi_fold_backtest.py`) carves extra held-out months
+directly out of each task's own training history (the same leakage-safe
+"hold out the trailing month" trick used for hyperparameter tuning). This
+does not require official Kaggle Solution files, and gives more
+(task, fold) pairs to assess variance with.
+
+## Leakage protection and explicit assumptions
+
+The single biggest design decision in this project (see `features.py`
+docstring for the full reasoning): forecasts are produced for an entire
+target month in one shot, not recursively hour-by-hour. This deliberately
+rules out short load lags (lag-1h, lag-24h, ...), since for an hour deep
+into the target month, "load 24h ago" would often fall *inside* the same
+unobserved month. All features are one of:
+
+- **Calendar features** (hour/day/month/weekday/holiday, cyclic encodings,
+  a `trend` term) — exactly knowable for any future timestamp.
+- **Load climatology** — (month, hour, day-of-week) historical statistics
+  of LOAD, fit only on data strictly before the target month.
+- **Weather-ensemble climatology** — the same idea applied to aggregate
+  statistics (mean/median/std/HDD/CDD) across the 25 weather stations,
+  again fit only on pre-target-month history.
+
+**Temperature assumption:** by default, weather features for the target
+month use the *climatology* lookup above, never the real observed
+temperature for that month — this is the leakage-safe default. A
+separate, explicitly-labelled **oracle-weather** comparison
+(`leakage.run_oracle_comparison: true` in the config) re-fits every model
+using the *real* observed temperature for the target month, purely to
+measure how much the no-future-temperature assumption costs in practice.
+It is off by default and never used for the headline numbers below.
+
+## Baselines
+
+Two baselines, per the assignment's requirement:
+
+1. **`benchmark_official`** — the GEFCom2014-supplied naive benchmark
+   (same month last year, flatly expanded to 99 quantiles). Deliberately
+   weak; reported as a sanity floor.
+2. **`baseline_empirical_climatology`** — for each (month, hour,
+   is-weekend) group, the empirical 1st–99th percentiles of historical
+   LOAD, estimated only from data strictly before the target month. This
+   is a materially stronger baseline, since it already captures
+   time-of-day and seasonal shape, and it is the bar every sophisticated
+   model must clear.
+
+## Models
+
+Three quantile-regression families, all fit at 23 knot quantiles
+(both tails included) and linearly interpolated to the full 1–99 grid to
+keep laptop-CPU runtime reasonable:
+
+- `linear_qr` — scikit-learn `QuantileRegressor` on a small, curated
+  feature subset.
+- `lightgbm` — `objective="quantile"`, primary gradient-boosted model.
+- `xgboost` — `objective="reg:quantileerror"`, secondary comparison model.
+
+For each, three variants were also evaluated:
+- **plain** — fit directly on LOAD.
+- **`__residual`** — fit on the residual against the empirical-climatology
+  baseline's median, then added back (lets the model focus on what the
+  baseline doesn't already capture).
+- **`__ens_baseline`** — a simple 50/50 average of the model's prediction
+  and the empirical-climatology baseline's prediction.
+
+Hyperparameters for LightGBM/XGBoost were tuned with Optuna (30 trials
+each) using leakage-safe internal expanding-window folds carved from
+Task 1's own history only (`scripts/tune_hyperparams.py`), keeping the
+tuning task's real target month untouched and out of the reported
+backtest numbers' influence on hyperparameter selection.
+
+## Results
+
+Mean pinball loss across all 15 backtest tasks (lower is better):
+
+| model                           |   mean |    std | n tasks |
+|:---------------------------------|-------:|-------:|--------:|
+| lightgbm__ens_baseline           | 8.1178 | 3.9093 |      15 |
+| xgboost__ens_baseline            | 8.1388 | 3.8261 |      15 |
+| xgboost__residual                | 8.1525 | 3.5703 |      15 |
+| lightgbm__residual                | 8.2226 | 3.8064 |      15 |
+| linear_qr__ens_baseline           | 8.2421 | 4.0959 |      15 |
+| **baseline_empirical_climatology**| **8.3273** | **4.5505** | **15** |
+| lightgbm                         | 8.4046 | 3.3334 |      15 |
+| linear_qr__residual               | 8.4309 | 3.5091 |      15 |
+| xgboost                           | 8.4373 | 3.1916 |      15 |
+| linear_qr                         | 8.5369 | 3.6329 |      15 |
+| benchmark_official                | 15.1433| 7.5957 |      15 |
+
+![Mean pinball loss per task](outputs/pinball_by_task.png)
+
+**Statistical comparison (Diebold-Mariano test, HAC-corrected, pooled
+hourly loss across all tasks, n=10,968):**
+
+- Every model variant beats `benchmark_official` overwhelmingly
+  (p < 0.0001 in all cases) — confirming the naive year-ago benchmark is,
+  as intended, a very weak floor.
+- Against `baseline_empirical_climatology`, the **plain** `linear_qr`,
+  `lightgbm`, and `xgboost` models do **not** significantly beat the
+  baseline (p = 0.05–0.65) — in most cases the baseline is nominally
+  *better* on average, though not significantly so.
+- Only the **ensemble-with-baseline** variants show a statistically
+  significant improvement over the baseline alone:
+  `lightgbm__ens_baseline` (mean diff −0.219, p = 0.0005) and
+  `xgboost__ens_baseline` (mean diff −0.198, p = 0.0015).
+
+**Honest headline:** the empirical-quantile climatology baseline is
+already a strong forecaster for this series. Sophisticated models alone do
+not reliably beat it; blending a model's prediction 50/50 with the
+baseline is the only variant that provides a statistically defensible
+improvement.
+
+### Calibration
+
+![Calibration reliability curve](outputs/calibration_reliability.png)
+
+- `benchmark_official` is severely miscalibrated (its coverage curve is
+  flat at ~0.56 regardless of nominal level) — its 99 "quantiles" don't
+  actually spread out with the target load's true variability, consistent
+  with it being a deliberately naive benchmark.
+- `baseline_empirical_climatology` tracks the diagonal (perfect
+  calibration) most closely of all five models shown.
+- `linear_qr`, `lightgbm`, and `xgboost` are all noticeably overconfident
+  in the lower-to-middle quantile range (empirical coverage sits above the
+  diagonal there), meaning their predicted quantiles in that range run
+  systematically a bit high relative to what's actually observed.
+
+Empirical coverage of central intervals (nominal 90%: e.g.
+`baseline_empirical_climatology` achieves 0.863, `xgboost__ens_baseline`
+achieves 0.870 — both reasonably close to nominal; the raw ML models
+(0.79–0.85) undercover slightly more).
+
+### Notable fold-to-fold variance
+
+Task 15's `benchmark_official` loss (34.07) is roughly 4x the average —
+an unusual month where "same month last year" failed badly, while every
+other model handled it far better (climatology baseline: 8.78, xgboost:
+10.45). This is exactly the kind of single-number trap requirement 5 warns
+against — it's why 15 folds with a DM test are reported rather than one
+score.
+
+## Limitations and unsuccessful approaches
+
+- **A real timestamp-parsing bug, found and fixed:** the raw
+  `TIMESTAMP` format concatenates month+day+year with no separators and
+  no fixed width (e.g. `"1012010 1:00"`), which is genuinely ambiguous
+  whenever a file starts on the 1st of a two-digit month (Oct/Nov/Dec) --
+  both `(month=1, day=01)` and `(month=10, day=1)` are valid splits with
+  `day == 1`. This silently mis-parsed Tasks 2 and 14 (both genuinely
+  start Oct 1st) as if they began in January, which initially looked like
+  corrupted/duplicated downloaded files. The fix anchors every task after
+  the first on continuity from the accumulated history (the same approach
+  already used for benchmark/solution files) instead of self-parsing each
+  file's own first row; `reconstruct_hourly_index`'s internal spot-check
+  against unambiguous rows still catches genuine file corruption by
+  raising loudly. See `data_loading.py` and `timestamps.py` docstrings.
+- **Ensembling with the baseline works; the raw models alone don't
+  clearly help.** This was somewhat unexpected going in, and is reported
+  honestly above rather than only showing the best variant.
+- **LSTM (optional, `run_lstm_experiment.py`):** included to test whether
+  a sequence model over the same leakage-safe feature stream captures
+  temporal structure the per-hour GBMs miss. Not part of the default
+  backtest and not expected to beat LightGBM/XGBoost — reported only as a
+  comparison point per-task, not in the main table.
+- **What I'd try next with more time:** a proper stacking/blending weight
+  (rather than fixed 50/50) learned on validation folds; quantile
+  crossing-aware loss functions instead of post-hoc sorting; per-zone or
+  per-season model selection given the visible fold-to-fold variance.
+
+## Tests
 
 ```bash
-python -m venv .venv
-# Windows: .venv\Scripts\Activate.ps1   |   macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-```
-`requirements.txt` is included in this repository with exact pinned versions for every package the code imports (pandas, numpy, scikit-learn, lightgbm, xgboost, scipy, PyYAML, optuna, pytest, tabulate). PyTorch is intentionally not pinned, since the optional LSTM comparison (`src/gefcom/lstm_model.py`) lazy-imports it only if that path is used.
-
-Download the GEFCom2014 dataset from Kaggle (https://www.kaggle.com/datasets/cthngon/gefcom2014-dataset/data) and use only the `GEFCom2014-L_V2` load-track files. Point `configs/config.yaml`'s `paths.load_dir` at the `Load` folder, e.g.:
-```yaml
-paths:
-  load_dir: "C:/Users/<you>/.../GEFCom2014-L_V2/Load"
-  output_dir: outputs
+pytest -v
 ```
 
-Run the tests:
-```bash
-pytest -q
-```
-
-Reproduce the results below, in order:
-```bash
-# 1. (optional) audit the raw task files for the known Task 2/Task 14 data-quality issue
-python scripts/diagnose_task_files.py --config configs/config.yaml
-
-# 2. hyperparameter tuning (leakage-safe internal folds from Task 1's own history)
-python scripts/tune_hyperparams.py --config configs/config.yaml --family lightgbm --n-trials 30
-python scripts/tune_hyperparams.py --config configs/config.yaml --family xgboost --n-trials 30
-# copy the resulting outputs/best_params_*.json values into configs/config.yaml under models.<family>
-
-# 3. real, scored backtest on the one task with a locally available Solution file
-python scripts/run_backtest.py --config configs/config.yaml --tasks 15
-
-# 4. multi-fold backtest across many tasks, using only historical data (no Solution files needed)
-python scripts/internal_multi_fold_backtest.py --config configs/config.yaml --tasks 1,3,5,9,13,15 --n-folds 3
-
-# 5. render the results tables below
-python scripts/make_results_section.py --output-dir outputs
-
-# 6. (optional) generate predictions for every task in the dataset, not just Task 15 --
-#    only Task 15 is scored (it's the only task with a local Solution file), but this
-#    demonstrates the pipeline runs end-to-end across the whole load track
-python scripts/run_backtest.py --config configs/config.yaml --tasks 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
-```
-
-## 4. Methodology summary
-
-- **Leakage-safe features by construction**: every feature (calendar cyclic encodings, a trend term, and month×hour×day-of-week load/weather climatology estimated only from data strictly before the target month) is computable for any hour of the target month without needing that month's own data. Recursive/lag-based forecasting is deliberately avoided — the whole target month is forecast in one shot. `tests/test_no_leakage.py` enforces this as a regression-tested invariant, not just a design intention.
-- **Two baselines**: the official GEFCom2014 naive benchmark, and a hand-built empirical-quantile climatology baseline (per month×hour×day-of-week group, with a fallback chain for sparse groups). All model families are compared against both.
-- **Three model families**, one shared interface: linear quantile regression, LightGBM, and XGBoost, each fit at 23 quantile knots (including both tails) and linearly interpolated to the full 1st–99th percentile grid.
-- **Two complementary backtests**: (a) a real, scored evaluation on Task 15 (December 2011), the only task for which a Kaggle Solution file was available locally; (b) an internal, history-only multi-fold backtest (expanding-window, trailing months held out from each task's own training history) that needs no Solution files and provides the multi-fold statistical comparison the single real task alone cannot.
-- **Statistical comparison**: a Diebold-Mariano test with Newey-West (HAC, Bartlett-kernel) variance correction and a small-sample Student-t adjustment, applied to the hourly pinball-loss differential — chosen because hourly load-forecast errors are strongly autocorrelated and a naive i.i.d. variance estimate would be anti-conservative.
-- **Explicit leakage-impact diagnostic**: an oracle-weather variant (using the real, future temperature — illegal in a genuine forecast) is run separately and reported only as a diagnostic, quantifying how much forecast accuracy is currently bottlenecked by the unavailability of real weather forecasts rather than by the models themselves.
-
-## 5. Results
-
-### 5a. Multi-fold comparison (leakage-safe, no oracle weather)
-
-Internal, history-only backtest — 6 tasks × 3 held-out months each, spanning Jul 2010–Sep 2011, 18 real (task, fold) pairs, 13,197 pooled hourly observations:
-
-| Model | Mean pinball loss | Std across folds | vs. baseline (Diebold-Mariano) |
-|---|---|---|---|
-| linear_qr | 8.3515 | 3.2937 | beats baseline, p = 0.0132 |
-| xgboost | 8.3588 | 2.8745 | beats baseline, p = 0.0278 |
-| lightgbm | 8.3652 | 3.1885 | beats baseline, p = 0.0279 |
-| baseline_empirical_climatology | 8.5753 | 4.0656 | — |
-
-All three model families beat the empirical-climatology baseline by a statistically significant margin, and all three also show lower variance across folds than the baseline — the baseline's accuracy swings more from month to month than any of the fitted models'. The three model families perform almost identically to each other, suggesting that once the calendar + climatology feature set is in place, the choice between a linear quantile model and a gradient-boosted tree adds little on top.
-
-### 5b. Task 15 (December 2011) — the one real, officially-scored held-out month
-
-| Model | Mean pinball loss (leakage-safe) | Mean pinball loss (oracle future temperature — illegal, diagnostic only) |
-|---|---|---|
-| baseline_empirical_climatology | 8.7844 | — |
-| linear_qr | 10.9010 | 5.3434 |
-| lightgbm | 11.4218 | 3.5138 |
-| xgboost | 11.2283 | 3.5703 |
-
-On this single real target month, the baseline was ahead of all three fitted models under leakage-safe weather — the opposite of the multi-fold finding above. Access to the real future temperature (illegal in a genuine forecast, included purely as a diagnostic) cuts model error by roughly 60–70%, quantifying how much of the models' potential is currently bottlenecked by the unavailability of real weather forecasts.
-
-**Reconciling 5a and 5b:** December is a holiday-dense month (Christmas, New Year's) not represented in the multi-fold sample (which spans Jul 2010–Sep 2011). The most likely explanation is that December is a genuinely harder, less-typical month for a feature set built around ordinary calendar/climatology structure, rather than the multi-fold finding being wrong. This is exactly why the assignment calls for evaluation across multiple folds rather than a single month — a single-December read gives the opposite conclusion from what holds on a broader, more representative sample. All statistical comparisons above use the Diebold-Mariano test described in Section 4; the pooled multi-fold test in 5a is the stronger piece of evidence given its larger, more diverse sample (n=13,197 across 18 folds vs. n=744 across 1 fold).
-
-### 5c. Full-dataset prediction coverage
-
-`outputs/predictions.csv` contains raw 99-quantile forecasts for **all 15 tasks**, not only Task 15 — the pipeline was run end-to-end across the entire load track (`--tasks 1,2,...,15`) to confirm it generalizes across every task's history length and target month, not just the one with a local Solution file. Only Task 15 contributes a scored loss (Section 5b), since it is the only task for which a local ground-truth file was available; predictions for tasks 1–14 are included as evidence the pipeline produces valid, leakage-safe forecasts across the full dataset, not as additional scored evidence.
-
-### 5d. Calibration
-
-The baseline's empirical interval coverage tracks its nominal targets closely (e.g. 93.0% empirical vs. 90% nominal, 94.8% vs. 95% nominal on Task 15). Model calibration is broadly reasonable but less consistent — see `outputs/coverage_summary.csv` for the full table across all nominal intervals and models.
-
-## 6. Limitations and things tried that didn't fully pan out
-
-- **Solution files (ground truth) were only available locally for Task 15** among the 15 tasks. The official multi-task comparison the assignment describes was therefore supplemented with an internal, history-only backtest rather than scoring official held-out months for tasks 1–14.
-- **Two source files (Task 2, Task 14) are mislabeled/duplicated** in the downloaded dataset — both are detected and skipped automatically (see `diagnose_task_files.py` and the warnings in `data_loading._build_cumulative_history`), leaving two genuine one-month gaps in the cumulative history. Re-downloading these two folders from Kaggle would remove the gaps; not done here due to time constraints.
-- **Hyperparameter tuning used folds drawn only from Task 1's own history** (Jan 2005–Sep 2010), which never reaches a winter/holiday month — the tuned hyperparameters may be mildly biased toward warm-season load patterns. Widening the tuning window to reach a winter fold is noted as future work.
-- **A data artifact was found and fixed during development**: every train file's final row is the hour-24-to-midnight rollover into the next calendar date, which naive month-grouping reads as a spurious one-row "next month." Left unfixed, this silently consumed one requested fold per task in the internal multi-fold backtest without being replaced. The fix filters out any calendar month with fewer than 100 rows before selecting the trailing N folds; the multi-fold numbers above already reflect the fix.
-- **Feature curation (a reduced, less redundant feature set for the tree-based models) and a finer day-of-week climatology grouping were tested and improved model accuracy** on Task 15 specifically, but did not close the gap to the baseline on that single month.
-- **A legitimate (non-oracle) weather-persistence feature and a full 15-task × 6-fold internal backtest** were scoped but not run, due to time constraints; both are natural next steps.
-- **Deep learning (LSTM)** was implemented as an optional, off-by-default comparison per the assignment's allowance, but was not prioritized for tuning, since the evidence above indicates the bottleneck is feature/weather information rather than model capacity — the assignment notes unnecessary complexity does not receive additional credit.
-
-## 7. What I'd do with more time
-
-- Re-download Task 2 / Task 14 to close the two data gaps.
-- Widen hyperparameter tuning to include a winter fold, and re-tune.
-- Run the internal multi-fold backtest across all 15 tasks at 6 folds each, rather than the 6-task subset used here.
-- Test a legitimate weather-persistence (trailing degree-day trend) feature as a middle ground between climatology and oracle weather.
-- Investigate why December specifically favors the baseline — likely a holiday-density effect — with a per-hour loss breakdown.
+Covers: leakage guarantees (`test_no_leakage.py` — history/target
+non-overlap, feature-column consistency, trend continuity, climatology
+purity, oracle-mode fail-loud behaviour), metric correctness
+(`test_metrics.py`), Diebold-Mariano correctness and HAC-vs-naive variance
+behaviour (`test_stats_tests.py`), timestamp reconstruction including the
+ambiguous-date edge cases above (`test_timestamps.py`), and a full
+end-to-end pipeline run on a synthetic fixture task
+(`test_pipeline_integration.py`).
