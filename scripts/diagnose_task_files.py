@@ -64,10 +64,7 @@ def main():
         "  - If a task shows 'starts Nh after' with N far from 1 (or 0): that task's own "
         "file is corrupted/mislabeled independent of anything downstream. Try "
         "re-downloading exactly that task's folder from Kaggle.\n"
-        "  - If most/all tasks show FULL HISTORY (tens of thousands of rows each): the "
-        "original assumption (each task is independently complete) was right after all, "
-        "and something else caused Task 2/14 specifically to be short -- worth "
-        "re-downloading those two before trusting the cumulative-history codepath."
+
     )
 
 
