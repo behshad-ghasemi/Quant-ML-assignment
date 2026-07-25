@@ -258,13 +258,19 @@ score.
 - **Ensembling with the baseline works; the raw models alone don't
   clearly help.** This was somewhat unexpected going in, and is reported
   honestly above rather than only showing the best variant.
-- **What I'd try next with more time:** a proper stacking/blending weight
-  (rather than fixed 50/50) learned on validation folds; quantile
-  crossing-aware loss functions instead of post-hoc sorting; per-zone or
-  per-season model selection given the visible fold-to-fold variance.Also i would try different models even deep learning as LSTM to test whether
-  a sequence model over the same leakage-safe feature stream captures
-  temporal structure the per-hour GBMs miss.
-  The oracle-weather comparison (leakage.run_oracle_comparison) is implemented and covered by a dedicated test (test_oracle_weather_mode_requires_explicit_observed_weather), but was not run for this submission due to time constraints. The expected direction is a modest improvement in pinball loss, since real future temperature is strictly more informative than a climatology lookup — this would be the first thing to quantify with more time.
+- **Oracle-weather comparison — the first thing I'd quantify with more time.**
+  The comparison (`leakage.run_oracle_comparison`) is implemented and covered
+  by a dedicated test (`test_oracle_weather_mode_requires_explicit_observed_weather`),
+  but was not actually run for this submission due to time constraints. The
+  expected direction is a modest improvement in pinball loss, since real
+  future temperature is strictly more informative than a climatology lookup.
+- **Better blending.** A proper stacking/blending weight (rather than a fixed
+  50/50) learned on validation folds; quantile crossing-aware loss functions
+  instead of post-hoc sorting; per-zone or per-season model selection, given
+  the visible fold-to-fold variance.
+- **Deep learning comparison.** I would also try a deep learning model as LSTM over the same
+  leakage-safe feature stream, to test whether a sequence model captures
+  temporal structure that the per-hour GBMs miss.
 
 ## Tests
 
