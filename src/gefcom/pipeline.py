@@ -70,6 +70,7 @@ class TaskResult:
     predictions: dict  # name -> (n, 99) np.ndarray, aligned to target_index
     target_index: pd.DatetimeIndex
     has_ground_truth: bool
+    solution_source: str | None = None  # "official" | "derived_from_next_task" | None
     mean_pinball: dict | None = None  # name -> float
     per_hour_pinball: dict | None = None  # name -> np.ndarray (n,)
     coverage_tables: dict | None = None  # name -> DataFrame
@@ -178,6 +179,7 @@ def run_task(
         predictions=predictions,
         target_index=bundle.target_index,
         has_ground_truth=bundle.solution_load is not None,
+        solution_source=bundle.solution_source,
         fit_seconds=fit_seconds,
     )
 
