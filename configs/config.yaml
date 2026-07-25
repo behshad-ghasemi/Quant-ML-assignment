@@ -1,0 +1,69 @@
+# GEFCom2014-L probabilistic load forecasting -- experiment configuration.
+# Everything an experiment needs (paths, which tasks/models to run,
+# hyperparameters) lives here rather than being hard-coded in scripts.
+
+paths:
+
+  load_dir: "C:/Users/behsh/Desktop/ML assignment/GEFCom2014-L_V2/Load"
+  output_dir: "outputs"
+
+# Which tasks to include in the backtest. All 15 by default; shrink this
+# list for a fast development run (the assignment explicitly asks for an
+# easy way to run on a smaller subset).
+tasks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+# Quantile "knots" that are directly fitted; the remaining quantiles (up to
+# the full 1..99 grid) are linearly interpolated between them. Both tails
+# are included explicitly so predictions never need to extrapolate beyond
+# a fitted quantile. Fewer knots = faster; 23 is a reasonable default for
+# a laptop. For a quick smoke test, try e.g. [0.1, 0.25, 0.5, 0.75, 0.9].
+quantile_knots:
+  [0.01, 0.02, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45,
+   0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 0.98, 0.99]
+
+validation:
+  val_fraction: 0.10
+  early_stopping_rounds: 50
+
+models:
+  linear_qr:
+    enabled: true
+    l1_reg: 0.001
+    max_train_rows: 4000
+
+  lightgbm:
+    enabled: true
+    n_estimators : 450
+    learning_rate:  0.14175794684305423
+    num_leaves: 15
+    min_child_samples: 71
+    subsample: 0.6185561776532837
+    colsample_bytree: 0.6074013118033397
+    reg_lambda: 0.5557415004455608
+
+
+  xgboost:
+    enabled: true
+    n_estimators: 550
+    learning_rate: 0.07043938300864458
+    max_depth: 3
+    subsample: 0.7820097212027186
+    colsample_bytree: 0.6879313757056237
+    reg_lambda: 2.5992137701215734
+
+
+
+
+leakage:
+  # If true (and a task has a solutionN_L_temperature.csv file), also fit
+  # and evaluate every model using the REAL realised weather for the
+  # target month, reported separately as an "oracle" comparison -- see
+  # README "Leakage protection and explicit assumptions". Off by default
+  # because it roughly doubles model-fitting time.
+  run_oracle_comparison:  false
+
+tuning:
+  # Task used to build internal expanding-window folds for hyperparameter
+  tuning_task_id: 1
+  n_internal_folds: 12
+

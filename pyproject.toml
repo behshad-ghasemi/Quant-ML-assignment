@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gefcom-load-forecast"
+version = "0.1.0"
+description = "Probabilistic (99-quantile) one-month-ahead electricity load forecasting on GEFCom2014-L, with rolling-origin backtesting, leakage-safe features, and Diebold-Mariano model comparison."
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
