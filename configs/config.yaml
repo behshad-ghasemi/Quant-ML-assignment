@@ -44,11 +44,11 @@ models:
   xgboost:
     enabled: true
     n_estimators: 200
-    learning_rate: 0.07014906598664564
+    learning_rate: 0.09860348015519114
     max_depth: 3
-    subsample: 0.731710673817582
-    colsample_bytree: 0.9928324494985943
-    reg_lambda: 0.0010414692923424846
+    subsample: 0.6496622859121314
+    colsample_bytree: 0.8523562675794093
+    reg_lambda: 0.3479827530390924
 
 
 
