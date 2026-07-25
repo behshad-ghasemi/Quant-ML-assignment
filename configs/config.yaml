@@ -33,14 +33,13 @@ models:
 
   lightgbm:
     enabled: true
-    n_estimators : 600
-    learning_rate:  0.018322328077144567
+    n_estimators : 250
+    learning_rate:  0.05902866971222449
     num_leaves: 15
-    min_child_samples: 10
-    subsample: 0.6097618133313577
-    colsample_bytree: 0.870980925020376
-    reg_lambda: 0.37657168499938887
-
+    min_child_samples: 32
+    subsample: 0.6156004373337498
+    colsample_bytree: 0.6056265041821554
+    reg_lambda: 0.00226324667867605
 
   xgboost:
     enabled: true
