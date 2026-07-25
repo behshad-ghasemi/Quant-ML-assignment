@@ -125,12 +125,6 @@ def _build_cumulative_history(load_dir, task_id: int) -> tuple[pd.DataFrame, lis
         expected_start = combined.index.max() + pd.Timedelta(hours=1)
 
         if file_start <= combined.index.max():
-            # Overlaps or goes backward relative to what we've already
-            # accumulated (e.g. this dataset's Task 2 and Task 14, which
-            # are mislabeled/duplicated downloads) -- not a genuine gap.
-            # Appending would silently duplicate or corrupt the series,
-            # so skip it; `combined` is left untouched and later files
-            # are still checked against it normally.
             warnings_out.append(
                 f"Task {tid}'s train.csv covers {hist.index.min()} -> {hist.index.max()}, which "
                 f"overlaps or precedes the accumulated history (currently ending at "
