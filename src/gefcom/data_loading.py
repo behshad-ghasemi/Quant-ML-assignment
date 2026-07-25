@@ -11,9 +11,29 @@ Column conventions produced here:
     benchmark_q    : DataFrame (target_index x 99 quantile columns) -- the
                       official naive benchmark, for reference only.
     solution_load  : Series of true LOAD for the target month, or None if
-                      no solution file is available for this task.
+                      no ground truth is available for this task (see
+                      solution_source below).
     solution_weather: DataFrame of true w1..w25 for the target month, or
-                      None if no solution-temperature file is available.
+                      None if no ground truth is available.
+    solution_source: "official" if solution_load came from a Kaggle
+                      solutionN_L.csv file, "derived_from_next_task" if it
+                      was reconstructed from Task (task_id+1)'s own
+                      train.csv (see note below), or None if no ground
+                      truth is available at all (e.g. the final task, when
+                      it also lacks an official solution file).
+
+Note on deriving solutions from the next task (`_read_train_slice_as_solution`):
+only Task 15 ships an official solutionN_L.csv in this dataset. But every
+other task's target month is exactly the "newly-revealed increment" at
+the START of the following task's own train.csv (see the cumulative-
+history note below) -- i.e. Task N+1's train.csv literally contains the
+true LOAD (and true w1..w25) for Task N's forecast month. `load_task`
+uses this as a fallback ground truth for any task that lacks an official
+solution file and has a following task available. This is real, already-
+downloaded data (not synthetic), and the same continuity-anchoring +
+spot-check safety net used elsewhere (`reconstruct_hourly_index`) still
+raises loudly if a next-task file doesn't actually align with the
+expected target month, rather than silently producing a wrong "solution".
 
 Note on the leading NaN block: for every task, LOAD is NaN from the start
 of the series (2001-01-01) until real metering data begins (empirically
@@ -57,6 +77,7 @@ class TaskBundle:
     benchmark_q: pd.DataFrame
     solution_load: pd.Series | None
     solution_weather: pd.DataFrame | None
+    solution_source: str | None  # "official" | "derived_from_next_task" | None
 
 
 
@@ -109,6 +130,39 @@ def _read_solution_temperature(path, target_start: pd.Timestamp, expected_n: int
 
 
 
+def _read_train_slice_as_solution(
+    path, target_start: pd.Timestamp, expected_n: int
+) -> tuple[pd.Series, pd.DataFrame]:
+    """Derive true LOAD/weather for a target month from the NEXT task's own
+    train.csv, whose newly-revealed increment is exactly that month (see
+    module docstring). Only used as a fallback when no official Kaggle
+    solution file exists for this task.
+
+    Anchors reconstruction on `target_start` (the same continuity anchor
+    used everywhere else in this module) rather than self-parsing --
+    `reconstruct_hourly_index`'s internal spot-check against the file's
+    own unambiguous rows still raises loudly if this file doesn't
+    genuinely align with the expected month, so a mismatched/corrupted
+    next-task file cannot silently produce a wrong "solution".
+    """
+    df = pd.read_csv(path)
+    idx = reconstruct_hourly_index(df["TIMESTAMP"], anchor_override=target_start)
+    verify_regular_hourly_grid(idx)
+    df = df.drop(columns=["TIMESTAMP"]).set_index(idx)
+    df.index.name = "timestamp"
+
+    if len(df) < expected_n:
+        raise ValueError(
+            f"Next task's train.csv has only {len(df)} rows, fewer than the {expected_n} "
+            f"needed to cover this task's target month -- cannot derive a solution from it."
+        )
+    sliced = df.iloc[:expected_n]
+
+    solution_load = pd.Series(sliced["LOAD"].to_numpy(), index=sliced.index, name="LOAD")
+    solution_weather = sliced[WEATHER_COLUMNS].copy()
+    return solution_load, solution_weather
+
+
 def _build_cumulative_history(load_dir, task_id: int) -> tuple[pd.DataFrame, pd.DatetimeIndex | None, list[str]]:
     from .discovery import discover_task
 
@@ -118,6 +172,7 @@ def _build_cumulative_history(load_dir, task_id: int) -> tuple[pd.DataFrame, pd.
 
     for tid in range(1, task_id + 1):
         paths = discover_task(load_dir, tid)
+
 
         anchor = None if combined is None else combined.index.max() + pd.Timedelta(hours=1)
         hist, idx = _read_train(paths.train_csv, anchor_override=anchor)
@@ -172,8 +227,10 @@ def load_task(load_dir, task_id: int, paths: TaskPaths | None = None) -> TaskBun
     target_index = benchmark_q.index
 
     solution_load = None
+    solution_source = None
     if paths.solution_csv is not None:
         solution_load = _read_solution_plain(paths.solution_csv, target_start, len(target_index))
+        solution_source = "official"
 
     solution_weather = None
     if paths.solution_temperature_csv is not None:
@@ -189,6 +246,31 @@ def load_task(load_dir, task_id: int, paths: TaskPaths | None = None) -> TaskBun
             raise ValueError(
                 f"Task {task_id}: LOAD in solution file and solution-temperature file disagree."
             )
+        solution_source = solution_source or "official"
+
+    # Fallback: no official solution file for this task -- try deriving one
+    # from Task (task_id+1)'s own train.csv, whose newly-revealed increment
+    # is exactly this task's target month (see module docstring).
+    if solution_load is None:
+        try:
+            next_paths = discover_task(load_dir, task_id + 1)
+        except FileNotFoundError:
+            next_paths = None
+        if next_paths is not None:
+            try:
+                derived_load, derived_weather = _read_train_slice_as_solution(
+                    next_paths.train_csv, target_start, len(target_index)
+                )
+                solution_load = derived_load
+                if solution_weather is None:
+                    solution_weather = derived_weather
+                solution_source = "derived_from_next_task"
+            except ValueError as e:
+                warnings.warn(
+                    f"Task {task_id}: could not derive a solution from Task {task_id + 1}'s "
+                    f"train.csv -- {e}. Proceeding with solution_load=None for this task.",
+                    stacklevel=2,
+                )
 
     return TaskBundle(
         task_id=task_id,
@@ -198,4 +280,5 @@ def load_task(load_dir, task_id: int, paths: TaskPaths | None = None) -> TaskBun
         benchmark_q=benchmark_q,
         solution_load=solution_load,
         solution_weather=solution_weather,
+        solution_source=solution_source,
     )
