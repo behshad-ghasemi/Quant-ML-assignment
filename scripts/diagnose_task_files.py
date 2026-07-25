@@ -3,20 +3,6 @@
 to 2001, or just an incremental delta on top of the previous task? Reads
 each file directly and independently -- no cumulative-history logic, no
 assumptions -- so the answer is settled by direct observation.
-
-If a task's file is a full history, its row count will be large (tens of
-thousands) and its first reconstructed timestamp will be 2001-01-01
-01:00. If it's an incremental delta, its row count will be small (roughly
-one month, ~720-750, sometimes a bit more if it bundles several new
-months) and its first timestamp will be somewhere in the middle of the
-series.
-
-Also flags any task whose OWN file's start date doesn't match what should
-have been newly revealed at that point (i.e. roughly one month after the
-previous task's own file ends) -- this is the Task 2 / Task 14 symptom,
-and this script will tell you directly whether other tasks have the same
-problem, without relying on the cumulative-history skip/gap warnings.
-
 Usage:
     python scripts/diagnose_task_files.py --config configs/config.yaml
 """
