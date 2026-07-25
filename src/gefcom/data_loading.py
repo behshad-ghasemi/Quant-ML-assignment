@@ -31,7 +31,13 @@ Task 3's own file contributes ~720 rows, i.e. about one month, on top of
 Task 1's ~85k-row base). `load_task` therefore reconstructs each task's
 full history by chaining every earlier task's file onto Task 1's base,
 rather than trusting any single Ln-train.csv (for n>1) to be complete on
-its own.
+its own. Some downloaded task files (seen so far: Task 2 and Task 14) are
+themselves corrupted/mislabeled -- their date range doesn't match what
+should have been newly revealed at that point -- and are skipped with a
+warning rather than corrupting the chain; the resulting one-month gap is
+treated the same way as the documented 2001-2005 LOAD gap. If you can get
+clean replacements for those files, re-downloading and replacing them
+removes the gap and should be preferred over leaving it in.
 """
 from __future__ import annotations
 
@@ -108,77 +114,75 @@ def _read_solution_temperature(path, target_start: pd.Timestamp, expected_n: int
     return out
 
 
-def _build_cumulative_history(load_dir, task_id: int) -> tuple[pd.DataFrame, list[str]]:
+
+def _build_cumulative_history(load_dir, task_id: int) -> tuple[pd.DataFrame, pd.DatetimeIndex | None, list[str]]:
     from .discovery import discover_task
 
     combined: pd.DataFrame | None = None
+    own_task_index: pd.DatetimeIndex | None = None
     warnings_out: list[str] = []
 
     for tid in range(1, task_id + 1):
         paths = discover_task(load_dir, tid)
-        hist, _ = _read_train(paths.train_csv)
+
+        # Anchor every task after the first on continuity from the
+        # accumulated history, instead of self-parsing its own first
+        # TIMESTAMP row. This export's date format is genuinely ambiguous
+        # whenever a file starts on the 1st of a two-digit month (e.g.
+        # "1012010" collides between Jan 1 2010 and Oct 1 2010 -- both
+        # splits have day==1, so no string-only tie-break can resolve it;
+        # see timestamps.py). This mis-parsed Task 2 and Task 14 (both
+        # genuinely start Oct 1) as if they started in January -- it
+        # looked like corrupted/mislabeled files, but was really a parsing
+        # bug. Anchoring on continuity (already used for benchmark/
+        # solution files, see hourly_index_from_start) removes the
+        # ambiguity; reconstruct_hourly_index's internal spot-check
+        # against the file's own unambiguous rows still catches genuine
+        # corruption by raising loudly.
+        anchor = None if combined is None else combined.index.max() + pd.Timedelta(hours=1)
+        hist, idx = _read_train(paths.train_csv, anchor_override=anchor)
+
+        if tid == task_id:
+            own_task_index = idx
 
         if combined is None:
             combined = hist
             continue
 
-        file_start = hist.index.min()
-        expected_start = combined.index.max() + pd.Timedelta(hours=1)
-
-        if file_start <= combined.index.max():
+        # A task file wildly longer than one month (e.g. the wrong file
+        # dropped in that folder) is a different, real problem worth
+        # flagging even though continuity-anchoring will still reconstruct
+        # SOME index for it.
+        if len(hist) > 2000:
             warnings_out.append(
-                f"Task {tid}'s train.csv covers {hist.index.min()} -> {hist.index.max()}, which "
-                f"overlaps or precedes the accumulated history (currently ending at "
-                f"{combined.index.max()}). Skipping Task {tid}'s file -- it looks "
-                f"mislabeled/corrupted/duplicated. Re-download/verify the Task {tid} folder."
-            )
-            continue
-
-        if file_start > expected_start:
-            # A genuine forward gap (typically because an earlier task's
-            # file in this range was itself corrupted/skipped). We still
-            # append this file -- the missing hours become a real gap in
-            # the combined series, handled downstream the same way as the
-            # documented 2001-2005 LOAD gap, rather than blocking every
-            # subsequent task from ever joining the chain.
-            warnings_out.append(
-                f"Gap before Task {tid}: accumulated history ends at {combined.index.max()}, "
-                f"but Task {tid} starts at {file_start} (expected {expected_start}). Treating "
-                f"{expected_start} -> {file_start - pd.Timedelta(hours=1)} as genuinely missing "
-                f"and continuing to append Task {tid} onward."
+                f"Task {tid}'s train.csv has {len(hist)} rows (expected ~720-745 for one "
+                f"month) -- this looks like the wrong file was placed in Task {tid}'s folder. "
+                f"Re-download/verify the Task {tid} folder."
             )
 
         combined = pd.concat([combined, hist])
 
-    return combined, warnings_out
+    return combined, own_task_index, warnings_out
 
 
 def load_task(load_dir, task_id: int, paths: TaskPaths | None = None) -> TaskBundle:
     if paths is None:
         paths = discover_task(load_dir, task_id)
 
-    # This task's own train.csv determines the target month regardless of
-    # whether that file ends up included in the cumulative history below
-    # (see _build_cumulative_history) -- e.g. if THIS task's own file is
-    # itself the mislabeled/out-of-sequence one, its target month is still
-    # whatever immediately follows its own file, not wherever the
-    # (truncated) cumulative history happens to end.
-    own_hist, own_idx = _read_train(paths.train_csv)
-    target_start = own_idx[-1] + pd.Timedelta(hours=1)
-
-    history, warnings_out = _build_cumulative_history(load_dir, task_id)
+    history, own_idx, warnings_out = _build_cumulative_history(load_dir, task_id)
     for w in warnings_out:
         warnings.warn(w, stacklevel=2)
     try:
         verify_regular_hourly_grid(history.index)
     except ValueError as e:
         warnings.warn(
-            f"Task {task_id}: cumulative history has gap(s) after skipping mislabeled task "
-            f"file(s) (see warnings above) -- {e}. Proceeding anyway; features/models will "
-            f"treat this as a genuinely missing period, same as the documented 2001-2005 "
-            f"LOAD gap.",
+            f"Task {task_id}: cumulative history has gap(s) -- {e}. Proceeding anyway; "
+            f"features/models will treat this as a genuinely missing period, same as the "
+            f"documented 2001-2005 LOAD gap.",
             stacklevel=2,
         )
+
+    target_start = own_idx[-1] + pd.Timedelta(hours=1)
 
     zone_id = int(history["ZONEID"].iloc[0])
     if history["ZONEID"].nunique() != 1:
